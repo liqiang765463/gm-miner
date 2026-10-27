@@ -286,6 +286,12 @@ class TraeRuntimeTests(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertEqual(json.loads(body)["data"][0]["id"], "deepseek-v4.1-flash")
 
+    def test_upstream_identifies_application_instead_of_forwarding_library_ua(self):
+        status, _, body = self.request("GET", "/v1/models", extra={"User-Agent": "Python-urllib/3.11"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual({k.lower(): v for k, v in self.requests[-1]["headers"].items()}["user-agent"],
+                         "gm-miner-trae/0.5.12")
+
     def test_bad_auth_and_unsupported_endpoints_do_not_reach_cpa(self):
         before = len(self.requests)
         self.assertIn(self.request("GET", "/v1/models", node_key="wrong-key")[0], (401, 403))

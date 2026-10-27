@@ -20,6 +20,11 @@ routes:
       cluster: trae
       host_rewrite_literal: __GM_TRAE_CPA_HOST__
       timeout: 1800s
+    request_headers_to_add:
+      - header:
+          key: user-agent
+          value: gm-miner-trae/0.5.12
+        append_action: OVERWRITE_IF_EXISTS_OR_ADD
   - match:
       path: "/v1/models"
       headers:
@@ -33,6 +38,11 @@ routes:
       cluster: trae
       host_rewrite_literal: __GM_TRAE_CPA_HOST__
       timeout: 30s
+    request_headers_to_add:
+      - header:
+          key: user-agent
+          value: gm-miner-trae/0.5.12
+        append_action: OVERWRITE_IF_EXISTS_OR_ADD
 
 clusters:
   - name: trae
