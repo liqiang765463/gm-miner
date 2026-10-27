@@ -85,6 +85,12 @@ jobs:
       - name: Build gmcli
         run: cargo build -p gmcli
 
+      - name: Test custom Trae CPA transport
+        env:
+          GMCLI_BIN: target/debug/gmcli
+          GM_TRAE_RUNTIME_TEST: "1"
+        run: python3 -m unittest discover -s tests -p test_trae_cpa.py -v
+
       - name: Validate
         env:
           GMCLI_BIN: target/debug/gmcli

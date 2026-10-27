@@ -275,8 +275,42 @@ case "${OPENAI_UPSTREAM}" in
     ;;
 esac
 
+# Explicit custom transport. This is a separate provider, never an alias for
+# OpenAI/Z.ai, and is NOT admitted by the official gm registry automatically.
+# The only accepted API root is HTTPS /v1; credentials remain in process env.
+TRAE_CPA_ENABLED=0
+if [[ -n "${TRAE_CPA_BASE_URL:-}" || -n "${TRAE_CPA_API_KEY:-}" ]]; then
+  if [[ -z "${TRAE_CPA_BASE_URL:-}" || -z "${TRAE_CPA_API_KEY:-}" || -z "${GM_NODE_SECRET:-}" ]]; then
+    log "error: Trae CPA requires TRAE_CPA_BASE_URL, TRAE_CPA_API_KEY and GM_NODE_SECRET"
+    exit 1
+  fi
+  if [[ "${TRAE_CPA_API_KEY}" == *";"* || "${TRAE_CPA_API_KEY}" =~ [[:space:][:cntrl:]] ]]; then
+    log "error: TRAE_CPA_API_KEY must be one credential without whitespace or control characters"
+    exit 1
+  fi
+  # Do not echo a rejected URL: it may contain userinfo or a secret query.
+  if [[ ! "${TRAE_CPA_BASE_URL}" =~ ^https://([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(:([1-9][0-9]{0,4}))?/v1/?$ ]]; then
+    log "error: TRAE_CPA_BASE_URL must be https://DNS-host[:port]/v1 without credentials, query or fragment"
+    exit 1
+  fi
+  GM_TRAE_CPA_HOST="$(lowercase "${BASH_REMATCH[1]}")"
+  GM_TRAE_CPA_PORT="${BASH_REMATCH[4]:-443}"
+  if [[ "${GM_TRAE_CPA_HOST}" == *..* || "${GM_TRAE_CPA_PORT}" -gt 65535 ]]; then
+    log "error: TRAE_CPA_BASE_URL contains an invalid host or port"
+    exit 1
+  fi
+  export GM_TRAE_CPA_HOST GM_TRAE_CPA_PORT
+  # No multi-account rotation or registry slots for this private transport.
+  unset GM_TRAE_SLOT_IDS
+  TRAE_CPA_ENABLED=1
+  log "Trae CPA custom transport enabled; official registry admission is still required"
+fi
+
 # ── Require at least one provider key ─────────────────────────────────
 HAS_KEY=0
+if [[ "${TRAE_CPA_ENABLED}" -eq 1 ]]; then
+  HAS_KEY=1
+fi
 if [[ "${ANTHROPIC_UPSTREAM}" == "direct" && -n "${ANTHROPIC_API_KEY:-}" ]]; then
   HAS_KEY=1
   log "ANTHROPIC_API_KEY set"
@@ -433,16 +467,37 @@ fi
 # The rendered config goes to a writable path; the baked-in templates
 # stay untouched.
 RENDERED_CONFIG="${GM_RENDERED_CONFIG:-/tmp/envoy.rendered.yaml}"
+TEMPLATE_DIR="${GM_ENVOY_TEMPLATE_DIR:-/etc/envoy}"
+TRAE_TEMPLATE_DIR=""
+if [[ "${TRAE_CPA_ENABLED}" -eq 1 ]]; then
+  TRAE_TEMPLATE_DIR="$(mktemp -d)"
+  if ! mkdir "${TRAE_TEMPLATE_DIR}/upstreams" ||
+    ! cp "${TEMPLATE_DIR}/base.yaml" "${TRAE_TEMPLATE_DIR}/base.yaml" ||
+    ! cp "${TEMPLATE_DIR}"/upstreams/*.yaml "${TRAE_TEMPLATE_DIR}/upstreams/" ||
+    ! cp "${TEMPLATE_DIR}/optional/trae.yaml" "${TRAE_TEMPLATE_DIR}/upstreams/trae.yaml"; then
+    rm -rf "${TRAE_TEMPLATE_DIR}"
+    log "error: failed to stage Trae CPA templates"
+    exit 1
+  fi
+  TEMPLATE_DIR="${TRAE_TEMPLATE_DIR}"
+fi
+RENDER_STATUS=0
 GM_NODE_SECRET="${GM_NODE_SECRET:-}" \
   GM_BENCHMARK_HOST="${BENCHMARK_HOST}" \
   GM_ANTHROPIC_HOST="${ANTHROPIC_HOST}" \
   GM_OPENAI_HOST="${OPENAI_HOST}" \
   GM_OPENAI_SAN_SUFFIX="${OPENAI_SAN_SUFFIX}" \
   "${GMCLI_BIN:-gmcli}" render-envoy \
-  --template-dir "${GM_ENVOY_TEMPLATE_DIR:-/etc/envoy}" \
+  --template-dir "${TEMPLATE_DIR}" \
   --out "${RENDERED_CONFIG}" \
   --select "anthropic=${ANTHROPIC_UPSTREAM}" \
-  --select "openai=${OPENAI_UPSTREAM}"
+  --select "openai=${OPENAI_UPSTREAM}" || RENDER_STATUS=$?
+if [[ -n "${TRAE_TEMPLATE_DIR}" ]]; then
+  rm -rf "${TRAE_TEMPLATE_DIR}"
+fi
+if [[ "${RENDER_STATUS}" -ne 0 ]]; then
+  exit "${RENDER_STATUS}"
+fi
 
 if [[ -n "${GM_NODE_SECRET:-}" ]]; then
   log "GM_NODE_SECRET set — envoy enforces x-gm-node-key on inbound requests"

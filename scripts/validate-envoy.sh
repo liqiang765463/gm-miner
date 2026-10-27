@@ -66,6 +66,10 @@ render chutes-runtime GM_NETWORK=testnet CHUTES_API_KEY=c
 render kubetee-runtime GM_NETWORK=testnet KUBETEE_API_KEY=k
 render mainnet GM_NETWORK=mainnet GM_NODE_SECRET="${SECRET}" ANTHROPIC_API_KEY=a
 render no-node-secret GM_NETWORK=testnet OPENAI_API_KEY=o
+render trae-cpa GM_NETWORK=testnet GM_NODE_SECRET="${SECRET}" \
+  TRAE_CPA_BASE_URL=https://cpa.example.test/v1 TRAE_CPA_API_KEY=test-only-cpa
+render trae-cpa-port GM_NETWORK=testnet GM_NODE_SECRET="${SECRET}" \
+  TRAE_CPA_BASE_URL=https://cpa.example.test:8443/v1/ TRAE_CPA_API_KEY=test-only-cpa
 render azure-clouds GM_NETWORK=testnet GM_NODE_SECRET="${SECRET}" \
   ANTHROPIC_UPSTREAM=foundry \
   AZURE_FOUNDRY_ENDPOINT=https://gm-resource.services.ai.azure.com/ \

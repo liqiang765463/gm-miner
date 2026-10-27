@@ -1,0 +1,8 @@
+# Official v0.5.12 image at commit 7b95941b494d633d077abd4e1f878eed5d8da8a5.
+# The CLI, RA-TLS and attestation binaries are reused without rebuilding Rust.
+FROM ghcr.io/taostat/gm-miner@sha256:e8f96eb017ed59fe6767c02dcaaa6072a11e95137f1a8b187490913572c70727
+
+ENV GM_IMAGE_VERSION=0.5.12-trae-cpa
+COPY --chmod=755 image/start.sh /usr/local/bin/start.sh
+COPY image/envoy/base.yaml /etc/envoy/base.yaml
+COPY image/envoy/optional/trae.yaml /etc/envoy/optional/trae.yaml

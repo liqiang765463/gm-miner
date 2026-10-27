@@ -8,6 +8,9 @@ container start from this directory:
   route, the 501 catch-all and the loopback clusters.
 - `upstreams/*.yaml`: one file per upstream, holding its routes, its cluster
   and its key-slot settings.
+- `optional/trae.yaml`: an opt-in custom Trae/CPA transport staged by
+  `start.sh` only when explicitly configured. See `docs/trae-cpa.md` for
+  its separate provider identity and registry-admission requirements.
 
 `start.sh` validates the environment, then runs the hidden
 `gmcli render-envoy` (`cli/src/envoy_render.rs`), which writes

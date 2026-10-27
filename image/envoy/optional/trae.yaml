@@ -1,0 +1,63 @@
+# Loaded by start.sh only with an explicit, validated Trae CPA configuration.
+# The namespace is intentionally distinct from every admitted gm supplier.
+slots:
+  direct_env: TRAE_CPA_API_KEY
+  auth_header: authorization
+  auth_prefix: "Bearer "
+  no_retry: true
+
+routes:
+  - match:
+      path: "/v1/chat/completions"
+      headers:
+        - name: "x-gm-provider"
+          string_match:
+            exact: "trae"
+        - name: ":method"
+          string_match:
+            exact: "POST"
+    route:
+      cluster: trae
+      host_rewrite_literal: __GM_TRAE_CPA_HOST__
+      timeout: 1800s
+  - match:
+      path: "/v1/models"
+      headers:
+        - name: "x-gm-provider"
+          string_match:
+            exact: "trae"
+        - name: ":method"
+          string_match:
+            exact: "GET"
+    route:
+      cluster: trae
+      host_rewrite_literal: __GM_TRAE_CPA_HOST__
+      timeout: 30s
+
+clusters:
+  - name: trae
+    type: LOGICAL_DNS
+    connect_timeout: 10s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: trae
+      endpoints:
+        - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: __GM_TRAE_CPA_HOST__
+                    port_value: __GM_TRAE_CPA_PORT__
+    transport_socket:
+      name: envoy.transport_sockets.tls
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+        sni: __GM_TRAE_CPA_HOST__
+        common_tls_context:
+          validation_context:
+            trusted_ca:
+              filename: /etc/ssl/certs/ca-certificates.crt
+            match_typed_subject_alt_names:
+              - san_type: DNS
+                matcher:
+                  exact: __GM_TRAE_CPA_HOST__

@@ -1,0 +1,8 @@
+# Merge only with a rendered compose using YOUR custom image, after its
+# measurements and the distinct `trae` route are admitted by your registry.
+# Stock gmcli deploy intentionally does not consume this experimental overlay.
+services:
+  gm-miner:
+    environment:
+      - TRAE_CPA_BASE_URL
+      - TRAE_CPA_API_KEY

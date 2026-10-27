@@ -422,6 +422,11 @@ static_resources:
                           end
 
                           local function non_replayable_request(headers, provider, bare)
+                            -- Preserve CPA errors/limits and never replay a paid request,
+                            -- even when a caller injects Envoy retry-control headers.
+                            if provider == "trae" then
+                              return true
+                            end
                             if provider == "anthropic" then
                               local cfg = slot_config[provider]
                               return cfg ~= nil and cfg.no_retry
