@@ -55,8 +55,8 @@ GMCLI_BIN=/absolute/path/to/gmcli GM_TRAE_RUNTIME_TEST=1 \
 
 官方 `GET /products` 有 active 的 `deepseek/deepseek-v4.1-flash` 产品，表示买家可以请求该模型，不代表任意来源都能供给。`GET /image-versions` 当时只列出 v0.5.11、v0.5.12 官方镜像；本分支的自定义镜像不在清单中。`GET /miners/products/routes` 需要矿工登录，匿名请求返回 401，不能把产品列表当成已核实的 Trae 准入结果。
 
-接入顺序是：官方维护者确认接受 Trae/CPA 来源 → registry 添加明确的 Trae 供给路线、模型映射与身份检查 → CLI 增加相应供应商/凭据/声明支持，并批准自定义镜像及新增环境变量的测量 → 在测试网验证 → 注册主网 28、部署已获准的 Phala CVM → 声明报价并核验请求、评分及实际结算。
+已核实的技术约束是：官方 CLI 部署前后都会比较 compose/OS 测量与 registry 的 supported ImageVersion；不匹配则拒绝注册。发布新条目有 `gmcli publish-image-version` → `POST /admin/image-versions` 的管理员密钥接口，官方发布 CI 也通过此接口自动更新。因此，普通矿工登录不等于拥有发布新镜像条目的权限；这些证据并不证明必须提 GitHub issue、提交人工申请或等待某种固定审批流程。Trae 来源的自助准入或现有兼容路径仍未核实，不能把人工询问当成唯一接入方法。
 
-当前改动完成的是独立数据面转发；原版 `gmcli` 的 `Provider` 枚举没有 `trae`，不能直接运行 `--provider trae` 宣布已上线。`POST /admin/image-versions` 需要 registry 管理员权限，普通矿工登录或付注册费不能自行批准新镜像。新增供给路线是否被接受，需要官方维护者确认；此分支没有代替该确认。
+当前改动完成的是独立数据面转发；原版 `gmcli` 的 `Provider` 枚举没有 `trae`，不能直接运行 `--provider trae` 宣布已上线。仍需核验当前账号可见的供给路线、实际 registry 接受的 provider/model 合同和镜像测量；可复用现成路径时优先复用，只有已证实必须新增受控条目且当前身份没有权限时，才记录对应的外部权限缺口。此分支尚未完成主网注册验收。
 
 真实 Trae DeepSeek 小样本已通过本地修改后的矿工转发：普通请求和 SSE 请求均返回 200、答案 `15` 和 `model: deepseek-v4.1-flash`，SSE 有完整 `[DONE]`，CPA trace 均归属 Trae。非流式字段修复部署在配套 CPA 的 Trae 插件 `0.12.75-cpa-transport-cache-prompt-model.4`；矿工转发层仍透传返回值。插件优先保留上游非空 `metadata.model`，上游缺省时使用宿主实际解析并派发的模型名。现有流式字段也来自请求所选模型，因此两种响应的字段都不能作为独立的模型身份认证。原有空字段测试记录保留；本次修复还通过上游返回不同模型名时不覆盖的隔离宿主验证。此验证没有 Phala TDX 证明、官方网关调度或主网结算，不应当成主网上线成功。
