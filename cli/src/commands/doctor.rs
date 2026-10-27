@@ -173,6 +173,9 @@ fn provider_keys_check(cfg: &Config) -> Check {
             "no usable provider keys — run `gmcli set-api-keys --anthropic <key>` (and/or --openai / --google / --chutes / --zai / --moonshot / --deepinfra / --kubetee / --engy / --moonmath, or configure Bedrock/Azure upstreams)",
         );
     };
+    if let Err(err) = gm_miner_cli::trae::validate_keys(keys) {
+        return Check::fail("Trae upstream config", err.to_string());
+    }
     if !keys.any_set() {
         return Check::fail(
             "Provider keys usable",

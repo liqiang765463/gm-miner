@@ -44,6 +44,17 @@ pub fn render_env_file(
     registry_creds: Option<&RegistryCredentials>,
 ) -> String {
     let mut lines = render_provider_envs(env_vars);
+    if crate::trae::enabled(env_vars) {
+        for (name, value) in [
+            (crate::trae::ENV_URL, env_vars.trae_cpa_base_url.as_deref()),
+            (crate::trae::ENV_KEY, env_vars.trae.as_deref()),
+        ] {
+            lines.push_str(name);
+            lines.push('=');
+            lines.push_str(value.unwrap_or(""));
+            lines.push('\n');
+        }
+    }
     lines.push_str("GM_NODE_SECRET=");
     lines.push_str(node_secret);
     lines.push('\n');
@@ -197,6 +208,47 @@ pub(crate) fn write_env_file(
         .with_context(|| format!("rename {} -> {}", tmp_path.display(), env_path.display()))
 }
 
+/// A private, short-lived staging file required by Phala's env-file interface.
+/// Removed on success and ordinary errors; no persistent config contains the relay key.
+pub(crate) struct TemporaryEnvFile {
+    directory: std::path::PathBuf,
+    pub(crate) path: std::path::PathBuf,
+}
+
+impl TemporaryEnvFile {
+    pub(crate) fn create(
+        keys: &ProviderKeys,
+        node_secret: &str,
+        creds: Option<&RegistryCredentials>,
+    ) -> Result<Self> {
+        use std::fs::DirBuilder;
+        #[cfg(unix)]
+        use std::os::unix::fs::DirBuilderExt as _;
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        let directory =
+            std::env::temp_dir().join(format!("gm-trae-{}-{nonce}", std::process::id()));
+        let mut builder = DirBuilder::new();
+        #[cfg(unix)]
+        builder.mode(0o700);
+        builder
+            .create(&directory)
+            .context("create private Trae staging directory")?;
+        let file = Self {
+            path: directory.join("env"),
+            directory,
+        };
+        write_env_file(&file.path, keys, node_secret, creds)?;
+        Ok(file)
+    }
+}
+impl Drop for TemporaryEnvFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
+
 /// Render the compose template, substituting `${GM_IMAGE_REF...}` with
 /// the supplied pinned image reference and `__GM_NETWORK__` with the
 /// active network name.
@@ -264,6 +316,47 @@ fn replace_image_ref_placeholder(text: &str, replacement: &str) -> String {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trae_staging_file_is_private_and_removed_when_operation_returns_error() {
+        let mut keys = ProviderKeys::default();
+        crate::trae::apply_runtime(
+            &mut keys,
+            Some("https://relay.test/v1".into()),
+            Some("temporary-fixture-key".into()),
+        );
+        let path;
+        {
+            let file = TemporaryEnvFile::create(&keys, "node-secret", None).expect("stage");
+            path = file.path.clone();
+            assert!(std::fs::read_to_string(&path)
+                .expect("env")
+                .contains("TRAE_CPA_API_KEY=temporary-fixture-key"));
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                assert_eq!(
+                    std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
+                    0o600
+                );
+                assert_eq!(
+                    std::fs::metadata(path.parent().expect("parent"))
+                        .expect("dir stat")
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o700
+                );
+            }
+            let operation = || -> Result<()> {
+                let _staged = file;
+                anyhow::bail!("fixture deployment failure")
+            };
+            assert!(operation().is_err());
+        }
+        assert!(!path.exists());
+        assert!(!path.parent().expect("parent").exists());
+    }
 
     #[test]
     fn placeholder_replaced_once() {

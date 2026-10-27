@@ -53,6 +53,15 @@ pub(crate) async fn cmd_declare_product(
     discount_bp: u32,
     args: DeclareArgs<'_>,
 ) -> Result<()> {
+    if provider == &Provider::Trae {
+        if model != gm_miner_cli::trae::MODEL || args.upstream_model.is_some() {
+            bail!("Trae only supports deepseek-v4.1-flash; omit --upstream-model");
+        }
+        client
+            .require_capability(UPSTREAM_MODEL_ECHO_CAPABILITY)
+            .await
+            .context("Trae requires registry capability upstream-model-echo")?;
+    }
     validate_bedrock_offer_selector(&client.config, provider, args.upstream_model)?;
     let policy = declaration_policy(client, provider.as_str()).await;
     if policy.requires_capability {
@@ -78,6 +87,15 @@ pub(crate) async fn cmd_declare_product(
         .iter()
         .find(|route| route.provider == provider.as_str() && route.model == model);
 
+    if provider == &Provider::Trae {
+        if !routes.is_complete() {
+            bail!("Trae requires the complete explicit supplier-route catalog; legacy catalog fallback is disabled");
+        }
+        let source = route.context(
+            "registry does not expose the required trae/deepseek-v4.1-flash supplier route",
+        )?;
+        gm_miner_cli::trae::validate_route(source)?;
+    }
     let lines = if let (Some(product), Some(_)) = (catalog_hit, route) {
         declaration_lines(
             &format!("{provider}/{model}"),
@@ -314,6 +332,9 @@ pub(crate) async fn cmd_declare_products(
     discount_bp: u32,
     assume_yes: bool,
 ) -> Result<DeclareOutcome> {
+    if provider_filter == Some(&Provider::Trae) {
+        bail!("Trae requires an explicit offer: gmcli declare-product --provider trae --model deepseek-v4.1-flash --discount-pct <pct>");
+    }
     let catalog = fetch_catalog(client).await?;
     let routes = fetch_sources(client).await?;
     if !routes.is_complete() {
@@ -811,7 +832,7 @@ pub(crate) fn filter_catalog<'a>(
     products
         .iter()
         .filter(|p| p.status == "active")
-        .filter(|p| p.provider != "benchmark")
+        .filter(|p| p.provider != "benchmark" && p.provider != "trae")
         .filter(|p| provider_filter.is_none_or(|target| p.provider == target.as_str()))
         .collect()
 }
@@ -1204,6 +1225,88 @@ mod tests {
             })))
             .mount(server)
             .await;
+    }
+
+    #[tokio::test]
+    async fn trae_declaration_requires_an_exact_explicit_route_and_keeps_source_identity() {
+        for buyer in [None, Some("zai"), Some("deepseek")] {
+            let server = MockServer::start().await;
+            mount_model_echo_capability(&server).await;
+            mount_me(&server, serde_json::json!([])).await;
+            mount_catalog(&server, serde_json::json!([])).await;
+            let routes = buyer.map_or_else(
+                || serde_json::json!([]),
+                |buyer| {
+                    serde_json::json!([{
+                        "provider": "trae", "model": "deepseek-v4.1-flash",
+                        "buyer_provider": buyer, "buyer_model": "deepseek-v4.1-flash",
+                        "retail_price": retail(140_000_000, 280_000_000),
+                        "capable_worker_count": 0, "already_offered": false
+                    }])
+                },
+            );
+            mount_routes(&server, routes).await;
+            mount_declare(&server, serde_json::json!({"provider":"trae", "model":"deepseek-v4.1-flash", "discount_bp":1000})).await;
+            let mut client = RegistryClient::new(config_for(&server));
+            let result = cmd_declare_product(
+                &mut client,
+                &Provider::Trae,
+                "deepseek-v4.1-flash",
+                1000,
+                DeclareArgs {
+                    assume_yes: true,
+                    upstream_model: None,
+                },
+            )
+            .await;
+            assert_eq!(result.is_ok(), buyer == Some("deepseek"), "{result:?}");
+            assert_eq!(
+                hits(&server, "POST", "/miners/products").await,
+                usize::from(buyer == Some("deepseek"))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn trae_cannot_declare_glm_or_alias_it_as_deepseek() {
+        let server = MockServer::start().await;
+        let mut client = RegistryClient::new(config_for(&server));
+        for (model, upstream) in [("glm-5.3", None), ("deepseek-v4.1-flash", Some("glm-5.3"))] {
+            let error = cmd_declare_product(
+                &mut client,
+                &Provider::Trae,
+                model,
+                1000,
+                DeclareArgs {
+                    assume_yes: true,
+                    upstream_model: upstream,
+                },
+            )
+            .await
+            .expect_err("no alias");
+            assert!(error.to_string().contains("Trae only supports"));
+        }
+        assert!(server
+            .received_requests()
+            .await
+            .expect("requests")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn trae_bulk_declaration_never_fans_out_to_other_models() {
+        let server = MockServer::start().await;
+        let mut client = RegistryClient::new(config_for(&server));
+        assert!(
+            cmd_declare_products(&mut client, Some(&Provider::Trae), 1000, true)
+                .await
+                .is_err()
+        );
+        assert!(server
+            .received_requests()
+            .await
+            .expect("requests")
+            .is_empty());
     }
 
     fn scheduled_increase_payload() -> serde_json::Value {

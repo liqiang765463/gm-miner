@@ -45,6 +45,22 @@ pub(crate) fn load_config(
     // as the sticky per-network `api_url`.
     cfg.api_url_override = api_url_override.or_else(|| std::env::var("GM_REGISTRY_URL").ok());
 
+    let trae_url = std::env::var(gm_miner_cli::trae::ENV_URL).ok();
+    let trae_key = std::env::var(gm_miner_cli::trae::ENV_KEY).ok();
+    if trae_url.is_some()
+        || trae_key.is_some()
+        || cfg
+            .provider_keys
+            .as_ref()
+            .is_some_and(gm_miner_cli::trae::enabled)
+    {
+        gm_miner_cli::trae::apply_runtime(
+            cfg.provider_keys.get_or_insert_with(Default::default),
+            trae_url,
+            trae_key,
+        );
+    }
+
     Ok(cfg)
 }
 

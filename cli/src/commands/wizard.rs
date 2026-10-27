@@ -465,6 +465,7 @@ fn prompt_provider_keys(assume_yes: bool) -> Result<ProviderKeys> {
         engy: prompt_line("Engy API key (blank to skip):", assume_yes)?,
         moonmath: prompt_line("Moonmath ZRO API key (blank to skip):", assume_yes)?,
         near: prompt_line("NEAR AI Cloud API key (blank to skip):", assume_yes)?,
+        ..ProviderKeys::default()
     })
 }
 
@@ -523,6 +524,13 @@ fn describe_keys_command(keys: &ProviderKeys) -> String {
 /// Wizard step 5: declare products across the catalog at one discount.
 async fn wizard_declare_products(cfg: Config, assume_yes: bool) -> Result<StepOutcome> {
     let title = "Step 5/5 · declare products";
+    if cfg
+        .provider_keys
+        .as_ref()
+        .is_some_and(gm_miner_cli::trae::enabled)
+    {
+        return Ok(StepOutcome::Outstanding("gmcli declare-product --provider trae --model deepseek-v4.1-flash --discount-pct <pct> (requires an explicit registry route)".to_owned()));
+    }
     let Some(discount_bp) = prompt_discount(assume_yes)? else {
         println!("  No discount entered — skipping. Declare later with `gmcli declare-products --discount-pct <pct>`.");
         return Ok(StepOutcome::Outstanding(

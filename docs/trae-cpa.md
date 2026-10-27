@@ -30,7 +30,31 @@
 docker build --platform linux/amd64 -f image/Dockerfile.trae-cpa -t gm-miner-trae:local .
 ```
 
-`dstack/trae-cpa.override.yaml` 只提供自定义部署需要的额外环境变量，需与已渲染的基础 compose 合并。原版 `gmcli deploy`、供应商枚举、钱包、镜像测量和路由准入逻辑均保持原样，不会自动将本分支发布或注册到官方网络。
+本分支的宿主 `gmcli` 现在支持 `trae` 供应商、运行时 CPA 密钥和独立 compose 测量。容器继续使用官方旧 CLI 渲染 Envoy；Trae 是单凭据转发，不走旧 CLI 不认识的供应商槽位。`dstack/trae-cpa.override.yaml` 仍可用于手工部署，但本分支 CLI 已直接生成相同两个额外环境变量，不再叠加 override。默认部署的原有环境变量列表和测量不变。
+
+宿主 CLI 先用 `cargo build -p gmcli --locked` 构建。仅保存不含凭据的地址：
+
+```sh
+target/debug/gmcli set-api-keys --trae-cpa-base-url https://your-cpa.example/v1
+```
+
+由父进程从现有 Keychain / Secret Manager 一次取出凭据，通过 `TRAE_CPA_API_KEY` 环境变量传入后续命令；本 CLI 不提供密钥命令行参数，也不把它序列化到 `config.json`。Phala 目前使用 `--env` 文件接口，因此仅在提交时建立独占 0700 临时目录和 0600 文件，Phala 子进程结束或普通错误返回时立即删除。强制杀进程、断电不保证清理；不要把临时目录作为长期保管处。普通非 Trae 部署维持原行为。
+
+先离线查看候选镜像的测量与供给声明，无需登录、密钥或资金：
+
+```sh
+target/debug/gmcli --network mainnet trae-plan --image-ref 'registry/your-image@sha256:<64位摘要>' --discount-pct 10
+```
+
+输出固定标记 `candidate_only: true`，不会声称已准入。Docker 本地 image ID 不等于已发布 registry manifest digest，不能直接拿它注册。部署使用 `deploy --image-ref <真实已发布的摘要引用>`，必须先匹配目标 registry 的 supported compose/OS 测量；不匹配时仍在创建付费 CVM 前失败。`publish-image-version --trae-cpa` 能计算并提交同一测量，但仍需目标 registry 的管理员密钥，并非普通矿工的自助授权。
+
+本分支只允许显式声明：
+
+```sh
+target/debug/gmcli declare-product --provider trae --model deepseek-v4.1-flash --discount-pct 10
+```
+
+分支客户端要求 registry 的 `upstream-model-echo` 能力和完整 `/miners/products/routes` 中的精确 `trae/deepseek-v4.1-flash → deepseek/deepseek-v4.1-flash` 映射。缺失、旧版目录或映射到其他模型时，拒绝发送供给 POST；不支持 `--upstream-model` 改名。以上是本分支采用的检查条件，不能据此断言官方后端已经支持 Trae 或这些条件足以准入。普通 `declare-products` 会排除 Trae，需逐个明确声明；向导会保留这项待办，不把其他供应商的批量声明当成 Trae 已完成。
 
 **转发测试成功不等于官方网络可接单。** 自定义镜像及独立 `trae` 路线仍须被目标 registry 接受；公开官方 registry 尚未确认支持，不能用别的供应商名绕过它。
 
@@ -57,6 +81,10 @@ GMCLI_BIN=/absolute/path/to/gmcli GM_TRAE_RUNTIME_TEST=1 \
 
 已核实的技术约束是：官方 CLI 部署前后都会比较 compose/OS 测量与 registry 的 supported ImageVersion；不匹配则拒绝注册。发布新条目有 `gmcli publish-image-version` → `POST /admin/image-versions` 的管理员密钥接口，官方发布 CI 也通过此接口自动更新。因此，普通矿工登录不等于拥有发布新镜像条目的权限；这些证据并不证明必须提 GitHub issue、提交人工申请或等待某种固定审批流程。Trae 来源的自助准入或现有兼容路径仍未核实，不能把人工询问当成唯一接入方法。
 
-当前改动完成的是独立数据面转发；原版 `gmcli` 的 `Provider` 枚举没有 `trae`，不能直接运行 `--provider trae` 宣布已上线。仍需核验当前账号可见的供给路线、实际 registry 接受的 provider/model 合同和镜像测量；可复用现成路径时优先复用，只有已证实必须新增受控条目且当前身份没有权限时，才记录对应的外部权限缺口。此分支尚未完成主网注册验收。
+官方原版 `gmcli` 的 `Provider` 枚举没有 `trae`；本分支虽已补齐 CLI 合同与本地验证，但运行 `--provider trae` 仍不代表官方网关已接受。仍需核验当前账号可见的供给路线、实际 registry 接受的 provider/model 合同和镜像测量；可复用现成路径时优先复用，只有已证实必须新增受控条目且当前身份没有权限时，才记录对应的外部权限缺口。此分支尚未完成主网注册验收。
 
 真实 Trae DeepSeek 小样本已通过本地修改后的矿工转发：普通请求和 SSE 请求均返回 200、答案 `15` 和 `model: deepseek-v4.1-flash`，SSE 有完整 `[DONE]`，CPA trace 均归属 Trae。非流式字段修复部署在配套 CPA 的 Trae 插件 `0.12.75-cpa-transport-cache-prompt-model.4`；矿工转发层仍透传返回值。插件优先保留上游非空 `metadata.model`，上游缺省时使用宿主实际解析并派发的模型名。现有流式字段也来自请求所选模型，因此两种响应的字段都不能作为独立的模型身份认证。原有空字段测试记录保留；本次修复还通过上游返回不同模型名时不覆盖的隔离宿主验证。此验证没有 Phala TDX 证明、官方网关调度或主网结算，不应当成主网上线成功。
+
+## 本分支 CLI 验证
+
+`cargo test -p gmcli --locked` 覆盖凭据不落配置、不在 Debug 回显、地址校验、独立测量、临时密钥文件清理、离线命令，以及模拟 registry 的缺路线、错误买家映射和正确 Trae 声明。模拟 registry 通过只证明客户端行为，不能证明官方注册端已接受。原有官方镜像测量回归保留。

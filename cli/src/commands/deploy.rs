@@ -619,10 +619,21 @@ fn resolve_and_render_target(
             println!("Deploying the registry-supported image: {image_ref}");
         }
     }
-    prepare_deploy_target(
-        &PublicRegistryProvisioner { args, source },
-        cfg.active_network(),
-    )
+    if cfg
+        .provider_keys
+        .as_ref()
+        .is_some_and(gm_miner_cli::trae::enabled)
+    {
+        gm_miner_cli::deploy::prepare_deploy_target_for_trae(
+            &PublicRegistryProvisioner { args, source },
+            cfg.active_network(),
+        )
+    } else {
+        prepare_deploy_target(
+            &PublicRegistryProvisioner { args, source },
+            cfg.active_network(),
+        )
+    }
 }
 
 pub(crate) async fn cmd_deploy(
@@ -661,11 +672,13 @@ pub(crate) async fn cmd_deploy(
         require_bedrock_policy_image(&worker_backends, args, approved, &versions)?;
     let target = resolve_and_render_target(cfg, args, approved.image_ref.as_deref())?;
     // Reject incompatible templates/images before creating a billable CVM.
+    let compute_hash = if gm_miner_cli::trae::enabled(keys) {
+        gm_miner_cli::compose_hash::compute_compose_hash_for_trae
+    } else {
+        gm_miner_cli::compose_hash::compute_compose_hash
+    };
     let expected = gm_miner_cli::deploy::DstackDeployResult {
-        compose_sha256: gm_miner_cli::compose_hash::compute_compose_hash(
-            &target.image_ref,
-            cfg.resolved_network(),
-        )?,
+        compose_sha256: compute_hash(&target.image_ref, cfg.resolved_network())?,
         os_image_hash: gm_miner_cli::compose_hash::PINNED_OS_IMAGE_HASH.to_owned(),
     };
     verify_hashes(&expected, approved)
@@ -763,6 +776,9 @@ async fn deploy_preflight<'a>(
     // Only first-worker registration accepts terms, before any provider key is read.
     if *registration == WorkerRegistration::First {
         ensure_terms_accepted(cfg, args)?;
+    }
+    if let Some(keys) = &cfg.provider_keys {
+        gm_miner_cli::trae::validate_keys(keys)?;
     }
     let keys = cfg.provider_keys.as_ref().filter(|keys| keys.any_set()).ok_or_else(|| {
         anyhow::anyhow!(
@@ -1104,7 +1120,11 @@ pub(crate) async fn cmd_publish_image_version(
         "Computing the {network} ImageVersion for {} offline ...",
         flags.image_ref
     );
-    let compose_hash = compute_compose_hash(&flags.image_ref, network)?;
+    let compose_hash = if flags.trae_cpa {
+        gm_miner_cli::compose_hash::compute_compose_hash_for_trae(&flags.image_ref, network)?
+    } else {
+        compute_compose_hash(&flags.image_ref, network)?
+    };
     let os_image_hash = PINNED_OS_IMAGE_HASH;
     println!("  compose_hash  : {compose_hash}");
     println!("  os_image_hash : {os_image_hash}");

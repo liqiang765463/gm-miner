@@ -113,6 +113,25 @@ pub fn prepare_deploy_target(
     provisioner: &dyn ImageProvisioner,
     network: &str,
 ) -> Result<DeployTarget> {
+    prepare_deploy_target_with_template(provisioner, network, COMPOSE_TEMPLATE)
+}
+
+/// Opt-in Trae compose; cannot match the ordinary release measurement.
+///
+/// # Errors
+/// Returns an error if image provisioning or compose rendering fails.
+pub fn prepare_deploy_target_for_trae(
+    provisioner: &dyn ImageProvisioner,
+    network: &str,
+) -> Result<DeployTarget> {
+    prepare_deploy_target_with_template(provisioner, network, &crate::trae::compose_template())
+}
+
+fn prepare_deploy_target_with_template(
+    provisioner: &dyn ImageProvisioner,
+    network: &str,
+    template: &str,
+) -> Result<DeployTarget> {
     // Build/push the image (or accept a pre-built ref). The
     // build-vs-prebuilt branch lives entirely inside the `ImageProvisioner`.
     let image_ref = provisioner.provision()?;
@@ -120,7 +139,7 @@ pub fn prepare_deploy_target(
     // Render the compose template with the digest-pinned ref and the
     // active network — both end up as literals in the rendered compose
     // and contribute to the attestation-measured compose_hash.
-    let rendered_compose = render_compose(COMPOSE_TEMPLATE, &image_ref, network)?;
+    let rendered_compose = render_compose(template, &image_ref, network)?;
 
     Ok(DeployTarget {
         image_ref,

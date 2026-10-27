@@ -251,6 +251,14 @@ enum Command {
         env_var: String,
     },
 
+    /// Review a candidate Trae image/offer offline; does not publish or deploy.
+    TraePlan {
+        #[arg(long)]
+        image_ref: String,
+        #[arg(long = "discount-pct", value_parser = parse_discount_pct, default_value = "10")]
+        discount_bp: u32,
+    },
+
     /// Render the Envoy config from the base template and upstream files.
     #[command(hide = true)]
     RenderEnvoy {
@@ -703,6 +711,10 @@ pub(crate) struct DeployFlags {
 /// provenance; both hashes are computed offline from source.
 #[derive(clap::Args)]
 pub(crate) struct PublishImageVersionFlags {
+    /// Publish the opt-in Trae measurement (requires registry admin admission).
+    #[arg(long)]
+    pub(crate) trae_cpa: bool,
+
     /// Digest-pinned released image reference (registry/repo@sha256:...).
     /// The compose is rendered around this exactly as `deploy` would.
     #[arg(long, env = "GM_IMAGE_REF")]
@@ -894,6 +906,18 @@ async fn dispatch(cli: Cli) -> Result<()> {
         Command::PublishImageVersion { flags } => {
             // This endpoint uses an admin key; OAuth must not block it.
             cmd_publish_image_version(&context.config()?, *flags).await
+        }
+        Command::TraePlan {
+            image_ref,
+            discount_bp,
+        } => {
+            let plan = gm_miner_cli::trae::plan(
+                &image_ref,
+                context.network.unwrap_or(Network::Mainnet),
+                discount_bp,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&plan)?);
+            Ok(())
         }
         Command::SlotEnv { provider, env_var } => cmd_slot_env(&provider, &env_var),
         Command::RenderEnvoy {

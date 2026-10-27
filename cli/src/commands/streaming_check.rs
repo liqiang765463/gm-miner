@@ -749,13 +749,14 @@ fn bind_models_to_worker(
     }
 }
 
-fn sourcing_providers() -> [Provider; 5] {
+fn sourcing_providers() -> [Provider; 6] {
     [
         Provider::DeepInfra,
         Provider::Engy,
         Provider::Kubetee,
         Provider::Moonmath,
         Provider::Near,
+        Provider::Trae,
     ]
 }
 
@@ -821,6 +822,9 @@ fn configured_providers(keys: Option<&ProviderKeys>) -> Result<Vec<Provider>> {
     }
     if non_empty(keys.near.as_deref()) {
         providers.push(Provider::Near);
+    }
+    if gm_miner_cli::trae::enabled(keys) {
+        providers.push(Provider::Trae);
     }
     Ok(providers)
 }
@@ -1047,6 +1051,7 @@ fn fallback_model(provider: &Provider) -> &'static str {
         // over kimi; flash is probed once declared (see #185 / sources).
         Provider::Kubetee => "z-ai/glm-5.2",
         Provider::Near => "Qwen/Qwen3.8-27B",
+        Provider::Trae => gm_miner_cli::trae::MODEL,
         Provider::Benchmark => "benchmark",
     }
 }
@@ -1080,6 +1085,7 @@ fn build_probe(provider: Provider, model: &ProbeModel, slot: Option<String>) -> 
         | Provider::Engy
         | Provider::Moonmath
         | Provider::Near
+        | Provider::Trae
         | Provider::Benchmark => {
             openai_compatible_probe(provider, model, slot, "/v1/chat/completions")
         }
@@ -2864,6 +2870,7 @@ mod tests {
                 Provider::Kubetee,
                 Provider::Moonmath,
                 Provider::Near,
+                Provider::Trae,
             ]
         );
     }

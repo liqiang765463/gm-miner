@@ -219,6 +219,22 @@ pub fn compute_compose_hash(image_ref: &str, network: Network) -> anyhow::Result
     hash_app_compose(&compose)
 }
 
+/// Compute the opt-in Trae deployment measurement, keeping released defaults intact.
+///
+/// # Errors
+/// Returns an error if the compose cannot be rendered or serialized.
+pub fn compute_compose_hash_for_trae(image_ref: &str, network: Network) -> anyhow::Result<String> {
+    let mut envs = CANONICAL_ALLOWED_ENVS.to_vec();
+    let position = envs.len() - 1;
+    envs.splice(
+        position..position,
+        [crate::trae::ENV_URL, crate::trae::ENV_KEY],
+    );
+    let compose =
+        build_app_compose_from(image_ref, network, &crate::trae::compose_template(), &envs)?;
+    hash_app_compose(&compose)
+}
+
 #[cfg(test)]
 #[expect(
     clippy::expect_used,

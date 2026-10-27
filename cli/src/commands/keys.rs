@@ -9,6 +9,9 @@ use gm_miner_cli::{
 
 #[derive(clap::Args)]
 pub(crate) struct SetApiKeysArgs {
+    /// Public Trae CPA HTTPS endpoint. Inject `TRAE_CPA_API_KEY` via the process environment.
+    #[arg(long)]
+    trae_cpa_base_url: Option<String>,
     /// Anthropic API key (sk-ant-...).
     #[arg(long)]
     anthropic: Option<String>,
@@ -109,6 +112,7 @@ pub(crate) struct SetApiKeysArgs {
 impl SetApiKeysArgs {
     pub(crate) fn run(self, network: Option<Network>) -> Result<()> {
         let mut update = ProviderKeys {
+            trae_cpa_base_url: self.trae_cpa_base_url,
             anthropic: self.anthropic,
             anthropic_upstream: self.anthropic_upstream,
             bedrock_region: self.bedrock_region,
@@ -280,6 +284,9 @@ fn summary_lines(keys: &ProviderKeys) -> Vec<String> {
     group("engy", &[keys.engy.as_ref()]);
     group("moonmath", &[keys.moonmath.as_ref()]);
     group("near", &[keys.near.as_ref()]);
+    if keys.trae_cpa_base_url.is_some() {
+        lines.push("  trae: endpoint configured; inject TRAE_CPA_API_KEY at runtime".to_owned());
+    }
 
     for (name, selector) in [
         ("anthropic-upstream", keys.anthropic_upstream.as_ref()),
@@ -323,6 +330,9 @@ pub(crate) fn cmd_set_api_keys(
 }
 
 fn validate_update(keys: &ProviderKeys) -> Result<()> {
+    if let Some(url) = keys.trae_cpa_base_url.as_deref() {
+        gm_miner_cli::trae::validate_endpoint(url)?;
+    }
     for (name, value) in [
         (
             "azure-foundry-endpoint",
@@ -398,6 +408,7 @@ fn validate_update(keys: &ProviderKeys) -> Result<()> {
 
 fn merge_update(keys: &mut ProviderKeys, update: ProviderKeys) {
     for (target, value) in [
+        (&mut keys.trae_cpa_base_url, update.trae_cpa_base_url),
         (&mut keys.anthropic, update.anthropic),
         (&mut keys.anthropic_upstream, update.anthropic_upstream),
         (&mut keys.bedrock_region, update.bedrock_region),

@@ -23,6 +23,7 @@ pub mod register_hotkey;
 pub mod slots;
 pub mod table;
 pub mod terms;
+pub mod trae;
 pub mod types;
 pub mod wizard;
 pub mod workers;

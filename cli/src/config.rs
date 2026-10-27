@@ -327,6 +327,11 @@ impl NetworkEntry {
 /// a completely absent `provider_keys` section the same as all-None.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ProviderKeys {
+    /// Public relay endpoint; the credential is injected only at runtime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trae_cpa_base_url: Option<String>,
+    #[serde(skip)]
+    pub trae: Option<crate::trae::RuntimeKey>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anthropic: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -541,7 +546,8 @@ impl ProviderKeys {
             Provider::Engy => Some(("ENGY_API_KEY", self.engy.as_deref())),
             Provider::Moonmath => Some(("MOONMATH_API_KEY", self.moonmath.as_deref())),
             Provider::Near => Some(("NEAR_API_KEY", self.near.as_deref())),
-            Provider::Benchmark => None,
+            // The CPA relay is a single credential, not a direct upstream key-slot pool.
+            Provider::Trae | Provider::Benchmark => None,
         }
     }
 
@@ -563,6 +569,7 @@ impl ProviderKeys {
             || (anthropic_upstream == "foundry" && non_empty(self.azure_foundry_api_key.as_deref()))
             || (openai_upstream == "azure" && non_empty(self.azure_openai_api_key.as_deref()))
             || self.direct_keys().any(|(_, value)| non_empty(value))
+            || (non_empty(self.trae_cpa_base_url.as_deref()) && non_empty(self.trae.as_deref()))
     }
 
     /// Reject a selected cloud upstream that is missing fields `start.sh`
@@ -574,6 +581,7 @@ impl ProviderKeys {
     /// unknown value, or when a selected `bedrock`/`azure` upstream is missing
     /// a required field.
     pub fn validate_upstreams(&self) -> Result<()> {
+        crate::trae::validate_keys(self)?;
         crate::slots::validate_cloud_backend_single_keys(self)?;
         self.validate_anthropic_upstream()?;
         self.validate_openai_upstream()

@@ -621,8 +621,23 @@ impl PhalaClient for RealPhalaClient {
         // Write the env file at mode 0600 so the secrets are never visible
         // with broader permissions. `phala deploy` reads this file and
         // encrypts its contents client-side to the CVM key.
-        let env_path = self.project_dir.join(".env");
-        write_env_file(&env_path, env_vars, node_secret, registry_creds)?;
+        let temporary_env = if crate::trae::enabled(env_vars) {
+            crate::trae::validate_keys(env_vars)?;
+            Some(crate::deploy::compose::TemporaryEnvFile::create(
+                env_vars,
+                node_secret,
+                registry_creds,
+            )?)
+        } else {
+            None
+        };
+        let env_path = if let Some(file) = &temporary_env {
+            file.path.clone()
+        } else {
+            let path = self.project_dir.join(".env");
+            write_env_file(&path, env_vars, node_secret, registry_creds)?;
+            path
+        };
 
         let compose_arg = compose_path.to_string_lossy().into_owned();
         let env_arg = env_path.to_string_lossy().into_owned();
@@ -641,7 +656,11 @@ impl PhalaClient for RealPhalaClient {
             .args(&args)
             .output()
             .context("run phala deploy — is the phala CLI installed? (npm i -g phala)")?;
+        drop(temporary_env);
         if !out.status.success() {
+            if crate::trae::enabled(env_vars) {
+                bail!("phala deploy exited with status {}; upstream stderr omitted to avoid credential disclosure", out.status.code().unwrap_or(-1));
+            }
             bail!(
                 "phala deploy exited with status {}: {}",
                 out.status.code().unwrap_or(-1),
