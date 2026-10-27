@@ -59,4 +59,4 @@ GMCLI_BIN=/absolute/path/to/gmcli GM_TRAE_RUNTIME_TEST=1 \
 
 当前改动完成的是独立数据面转发；原版 `gmcli` 的 `Provider` 枚举没有 `trae`，不能直接运行 `--provider trae` 宣布已上线。`POST /admin/image-versions` 需要 registry 管理员权限，普通矿工登录或付注册费不能自行批准新镜像。新增供给路线是否被接受，需要官方维护者确认；此分支没有代替该确认。
 
-真实 Trae DeepSeek 小样本已通过本地修改后的矿工转发：普通请求和 SSE 请求均返回 200，SSE 有完整 `[DONE]` 与正确模型名。此次普通响应的 `model` 字段为空，原样保留；若目标网络要求逐响应验证模型身份，仍需完善非流式兼容，不能凭请求中的模型名伪造身份。此验证没有 Phala TDX 证明、官方网关调度或主网结算，不应当成主网上线成功。
+真实 Trae DeepSeek 小样本已通过本地修改后的矿工转发：普通请求和 SSE 请求均返回 200、答案 `15` 和 `model: deepseek-v4.1-flash`，SSE 有完整 `[DONE]`，CPA trace 均归属 Trae。非流式字段修复部署在配套 CPA 的 Trae 插件 `0.12.75-cpa-transport-cache-prompt-model.4`；矿工转发层仍透传返回值。插件优先保留上游非空 `metadata.model`，上游缺省时使用宿主实际解析并派发的模型名。现有流式字段也来自请求所选模型，因此两种响应的字段都不能作为独立的模型身份认证。原有空字段测试记录保留；本次修复还通过上游返回不同模型名时不覆盖的隔离宿主验证。此验证没有 Phala TDX 证明、官方网关调度或主网结算，不应当成主网上线成功。
